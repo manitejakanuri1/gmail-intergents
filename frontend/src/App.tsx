@@ -1,52 +1,32 @@
 import { useEffect, useRef, useState } from "react";
 import { api, Category, Email, Source, SyncStatus } from "./api";
+import Landing from "./Landing";
 
 type ViewMode = "priority" | "list" | "table" | "todo";
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     api.me().then((m) => { setAuthed(true); setEmail(m.email); }).catch(() => setAuthed(false));
   }, []);
 
-  if (authed === null) return <div className="center muted">Loading…</div>;
-  if (!authed) return <Login />;
-  return <Dashboard email={email} />;
-}
-
-function Login() {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const start = async () => {
+  const connect = async () => {
     setBusy(true);
-    setError(null);
     try {
       const { url } = await api.loginUrl();
       window.location.href = url; // redirect to Google consent
     } catch {
       setBusy(false);
-      setError(
-        "Couldn't reach the backend. Make sure the API is running on http://localhost:8000 " +
-          "and that you opened this page at http://localhost:5173 in a normal browser tab."
-      );
+      alert("Couldn't reach the backend. Please try again in a moment (the server may be waking up).");
     }
   };
 
-  return (
-    <div className="center">
-      <div className="login-card">
-        <h1>Gmail Intelligence Platform</h1>
-        <p className="muted">Connect your Gmail to summarize, categorize, and chat with your inbox.</p>
-        <button className="btn-primary" onClick={start} disabled={busy}>
-          {busy ? "Connecting…" : "Connect Gmail"}
-        </button>
-        {error && <p className="login-error">{error}</p>}
-      </div>
-    </div>
-  );
+  if (authed === null) return <div className="center muted">Loading…</div>;
+  if (!authed) return <Landing onConnect={connect} busy={busy} />;
+  return <Dashboard email={email} />;
 }
 
 function Dashboard({ email }: { email: string | null }) {
