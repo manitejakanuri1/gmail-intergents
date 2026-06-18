@@ -75,11 +75,11 @@
 2. Google redirects to `GET /auth/google/callback?code=...`. Backend exchanges code for **access + refresh tokens**, stores them encrypted in `gmail_accounts`, creates/updates `users`, sets an HTTP-only session cookie (app JWT).
 3. Backend enqueues an `initial_sync` job and returns. The UI shows a sync-progress state polled from `sync_state`.
 
-**B. Sync (background)** — covered in §4. Worker pulls messages, normalizes into `threads`/`emails`/`labels`, then enqueues `categorize_email`, `summarize_*`, and `embed_email` jobs per message.
+**B. Sync (background)** — covered in Section 4. Worker pulls messages, normalizes into `threads`/`emails`/`labels`, then enqueues `categorize_email`, `summarize_*`, and `embed_email` jobs per message.
 
-**C. Ask the chat agent (RAG)** — covered in §3.2. `POST /chat` → embed query (NIM) → vector + keyword retrieval from Postgres → Gemini answers with citations → persist turn.
+**C. Ask the chat agent (RAG)** — covered in Section 3.2. `POST /chat` → embed query (NIM) → vector + keyword retrieval from Postgres → Gemini answers with citations → persist turn.
 
-**D. Compose / Reply** — covered in §3.3. Gemini drafts; on send, GmailService builds a MIME message (with thread headers for replies) and calls `users.messages.send`.
+**D. Compose / Reply** — covered in Section 3.3. Gemini drafts; on send, GmailService builds a MIME message (with thread headers for replies) and calls `users.messages.send`.
 
 ### 1.3 Why a separate frontend + backend (not one full-stack app)
 
@@ -167,7 +167,7 @@ create table emails (
   unique (account_id, gmail_message_id)
 );
 -- priority/action/needs_action are added in migration 002_priority.sql and power
--- the priority control dashboard (see §3.2). A functional index on the priority
+-- the priority control dashboard (see Section 3.2). A functional index on the priority
 -- rank (urgent=1 … low=4) lets the dashboard fetch ordered-by-urgency in one query.
 
 -- Category taxonomy (seeded + extensible)
@@ -240,7 +240,7 @@ create index on emails using gin (tsv);
 
 - **Threads as a first-class table**, with `emails.thread_id` FK — every feature (summaries, replies, agent) can reason at the thread level, which the spec demands.
 - **Token columns are encrypted (`bytea`)** via `pgcrypto`, never stored as plaintext; combined with RLS this keeps credentials safe even at the DB layer.
-- **Embeddings live in a separate table, chunked** (`chunk_index`) rather than one vector per email, because long threads exceed a single embedding's useful context. Chunking preserves retrieval precision (see §3.1).
+- **Embeddings live in a separate table, chunked** (`chunk_index`) rather than one vector per email, because long threads exceed a single embedding's useful context. Chunking preserves retrieval precision (see Section 3.1).
 - **`sources jsonb` on assistant messages** persists exactly which emails an answer was drawn from — this is what powers "source clarity" in the UI and makes answers auditable.
 - **`history_id` + `page_token` + `sync_state`** cleanly separate incremental sync (Gmail History API) from a resumable initial backfill.
 
@@ -264,9 +264,9 @@ Each email is analyzed by a **single Gemini call** (`services/analyze.py`) that 
 ```
 
 **Why one call instead of separate categorize + summarize + prioritize calls:**
-- **Cost/quota:** it roughly *halves* the number of LLM calls per email — important on free-tier limits and at scale (see §6).
+- **Cost/quota:** it roughly *halves* the number of LLM calls per email — important on free-tier limits and at scale (see Section 6).
 - **Consistency:** category, priority and action are decided from the *same* read of the email, so they can't disagree.
-- **It powers the priority control dashboard** (§ Product): emails are surfaced **stacked by urgency** (urgent → low), each showing *what it is, how urgent it is, and what to do* — the app behaves as a triage/control system, not a flat mailbox. The taxonomy is the required six categories (newsletter, job, finance, notification, personal, work); priority is `urgent|high|medium|low` with explicit guidance in the system prompt (deadlines/security/money/offers → urgent; newsletters/automated → low).
+- **It powers the priority control dashboard** (Section Product): emails are surfaced **stacked by urgency** (urgent → low), each showing *what it is, how urgent it is, and what to do* — the app behaves as a triage/control system, not a flat mailbox. The taxonomy is the required six categories (newsletter, job, finance, notification, personal, work); priority is `urgent|high|medium|low` with explicit guidance in the system prompt (deadlines/security/money/offers → urgent; newsletters/automated → low).
 
 The output is parsed defensively (regex-extract the JSON, validate against allowed values, fall back to safe defaults) so a malformed model response never breaks ingestion.
 
@@ -300,7 +300,7 @@ user question
    └─ 6. Return answer + structured `sources[]`; persist the turn
 ```
 
-**Vector index decision (ivfflat → exact).** We initially created an `ivfflat` index, but at this dataset scale (a few thousand vectors) `ivfflat` with the default single-probe actually *hurt recall* — each query scanned only one small cluster and missed relevant emails. We dropped it in favour of **exact KNN** (a sequential cosine scan), which at this size is both instant and 100% accurate. The `hnsw` index is the documented upgrade path once vectors reach the millions (§7) — but exact search is the correct, measured choice now, not a limitation.
+**Vector index decision (ivfflat → exact).** We initially created an `ivfflat` index, but at this dataset scale (a few thousand vectors) `ivfflat` with the default single-probe actually *hurt recall* — each query scanned only one small cluster and missed relevant emails. We dropped it in favour of **exact KNN** (a sequential cosine scan), which at this size is both instant and 100% accurate. The `hnsw` index is the documented upgrade path once vectors reach the millions (Section 7) — but exact search is the correct, measured choice now, not a limitation.
 
 **Full-text uses OR-semantics.** `plainto_tsquery` ANDs all terms, which is brittle ("rejected" misses "won't move forward"); we rewrite it to OR the lexemes so partial overlaps still surface, then rank by `ts_rank`. This also makes the keyword path a usable fallback when embeddings are unavailable.
 
@@ -368,7 +368,7 @@ user question
 - **React + Vite + TypeScript (frontend):** fast builds, typed UI, and **TanStack Query** handles server-state, caching, and polling (sync progress, chat) cleanly. **shadcn/ui + Tailwind** gives a clean inbox/chat UI quickly.
 - **ARQ + Redis (job queue):** sync, summarization, and embedding are long-running and bursty; a queue decouples them from HTTP, enables retries/backoff, and lets the worker scale on queue depth. ARQ is async, matching FastAPI.
 - **Supabase + pgvector (vector DB approach):** keeping vectors *in Postgres* avoids running a separate vector store, lets us do **hybrid** (vector + SQL filter + full-text) retrieval in one query, and gives RLS/auth for free. At the current scale we use **exact KNN** (no ANN index) for perfect recall; `hnsw` is the upgrade path at large scale.
-- **Gemini + NIM split:** reason vs. represent (see §0/§3.4).
+- **Gemini + NIM split:** reason vs. represent (see Section 0/Section 3.4).
 - **Deploy:** SPA on Vercel; FastAPI + worker on Render/Railway; Redis on Upstash; DB on Supabase — each tier scales independently.
 
 ---
@@ -376,7 +376,7 @@ user question
 ## 6. Trade-offs & Limitations
 
 **Free-tier AI quotas (the main operational constraint).** Both models run on free tiers:
-- **Gemini free tier** caps requests/day. Folding triage into one call per email (§3.1) halves usage, but a full 500+ inbox still exhausts the daily allowance — so enrichment is processed gradually by the worker and resumes as quota refreshes. The system degrades gracefully when exhausted (§3.2): chat returns retrieved emails, ingestion stores raw emails un-enriched and back-fills later. **Production uses a paid Gemini tier**, which removes this cap with no code change.
+- **Gemini free tier** caps requests/day. Folding triage into one call per email (Section 3.1) halves usage, but a full 500+ inbox still exhausts the daily allowance — so enrichment is processed gradually by the worker and resumes as quota refreshes. The system degrades gracefully when exhausted (Section 3.2): chat returns retrieved emails, ingestion stores raw emails un-enriched and back-fills later. **Production uses a paid Gemini tier**, which removes this cap with no code change.
 - **NIM `nv-embedqa-e5-v5`** caps inputs at **512 tokens**; we send `truncate: "END"` and embed in resilient batches that skip any malformed chunk rather than failing the whole run.
 
 **Google OAuth verification (production gate).** The app uses *restricted* Gmail scopes, so in **Testing** mode only added test users can connect. Serving arbitrary users requires Google's OAuth **verification + annual CASA security review**. For the assessment the app runs in Testing mode with a demo/test-user account. No code changes are needed for production — it's a Google Console + verification process.
@@ -410,7 +410,7 @@ These are implemented in the build, and directly satisfy the stated requirements
 - **Rate limiting & quota safety** — exponential backoff with jitter on `429`/`5xx` (honoring `Retry-After`), plus a **Redis token-bucket** that throttles outbound Gmail calls *before* hitting the quota. Bounded worker concurrency keeps a backfill under Gmail's per-user limits.
 - **Incremental sync** — after the initial backfill, only new/changed mail is fetched via the Gmail **History API** (`startHistoryId`), so steady-state cost is proportional to *new* mail, not inbox size.
 - **Compute-once** — summaries and embeddings are persisted and never recomputed unless content changes (content-hash gated). Re-syncs and retries don't re-bill AI calls or duplicate rows (idempotent upserts on Gmail ids).
-- **Stateless API + indexed reads** — JWT-cookie sessions (no server-side session state) and the indexes in §2.2 keep inbox listing and retrieval fast as rows grow.
+- **Stateless API + indexed reads** — JWT-cookie sessions (no server-side session state) and the indexes in Section 2.2 keep inbox listing and retrieval fast as rows grow.
 
 This is the level of scale the assessment grades, and it is genuinely handled — not stubbed.
 
