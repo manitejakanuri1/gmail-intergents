@@ -65,7 +65,10 @@ async def google_callback(code: str, request: Request):
     await request.app.state.arq.enqueue_job("sync_account", str(account_id), False)
 
     token = create_session_token(str(user_id), str(account_id))
-    resp = RedirectResponse(url=settings.frontend_origin)
+    # Pass the token to the frontend in the URL fragment (#), which never reaches
+    # the server/logs. The SPA reads it, stores it, and strips it from the URL.
+    # Also set a cookie for convenient same-origin local dev.
+    resp = RedirectResponse(url=f"{settings.frontend_origin}/#token={token}")
     resp.set_cookie(
         SESSION_COOKIE, token, httponly=True, samesite="lax",
         max_age=7 * 24 * 3600, secure=False,

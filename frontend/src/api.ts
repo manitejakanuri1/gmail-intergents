@@ -1,9 +1,28 @@
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const TOKEN_KEY = "session_token";
+
+// On load, capture a token handed back by the OAuth redirect (#token=...),
+// persist it, and strip it from the URL so it isn't left in the address bar.
+(function captureToken() {
+  const m = window.location.hash.match(/token=([^&]+)/);
+  if (m) {
+    localStorage.setItem(TOKEN_KEY, decodeURIComponent(m[1]));
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+})();
+
+export const getToken = () => localStorage.getItem(TOKEN_KEY);
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 
 async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = getToken();
   const res = await fetch(`${BASE}${path}`, {
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    credentials: "include", // keeps same-origin cookie auth working locally
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
     ...options,
   });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);

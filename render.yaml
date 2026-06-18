@@ -1,0 +1,42 @@
+# Render Blueprint — backend (FastAPI API + ARQ worker in one free web service).
+# In Render: New + → Blueprint → connect this repo. Then set the secret env vars
+# (marked sync:false) in the dashboard. Frontend deploys separately on Vercel.
+services:
+  - type: web
+    name: gmail-intelligence-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash start.sh
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      # Secrets — set these in the Render dashboard (never commit real values):
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI          # https://<this-service>.onrender.com/auth/google/callback
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: NVIDIA_NIM_API_KEY
+        sync: false
+      - key: NIM_EMBED_MODEL
+        value: nvidia/nv-embedqa-e5-v5
+      - key: NIM_BASE_URL
+        value: https://integrate.api.nvidia.com/v1
+      - key: REDIS_URL
+        sync: false
+      - key: APP_JWT_SECRET
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: FRONTEND_ORIGIN              # your Vercel URL, e.g. https://gmail-intergents.vercel.app
+        sync: false
