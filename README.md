@@ -10,9 +10,10 @@ for the full system/AI/DB design.
 ## Features
 
 - **Gmail integration** — OAuth 2.0, paginated sync, 429/backoff handling, incremental sync via the History API
-- **Summarization** — per-email + thread-level (map-reduce) summaries
+- **AI triage (one call/email)** — category + priority + summary + action item in a single Gemini call
+- **Priority control dashboard** — emails stacked by urgency (urgent→low) with per-item "Do:" actions and Done reminders; switchable Gmail-list / Table / To-do views (remembered per user)
 - **Categorization** — Newsletters / Job / Finance / Notifications / Personal / Work
-- **AI chat agent** — RAG over your emails with cited sources and a "not found" guardrail
+- **AI chat agent** — RAG over your emails with cited sources, a "not found" guardrail, and graceful fallback when a model is rate-limited
 - **Compose & reply** — draft from a prompt; replies preserve `In-Reply-To` / `References` so Gmail threads them
 
 ## Tech stack
@@ -61,8 +62,10 @@ repeat/
 
 ### 1. Database
 
-In the Supabase SQL editor, run [`backend/migrations/001_init.sql`](backend/migrations/001_init.sql).
-It enables `vector` + `pgcrypto` and creates all tables/indexes.
+In the Supabase SQL editor, run [`backend/migrations/001_init.sql`](backend/migrations/001_init.sql)
+then [`backend/migrations/002_priority.sql`](backend/migrations/002_priority.sql). The first enables
+`vector` + `pgcrypto` and creates all tables/indexes; the second adds the priority/action columns
+that power the control dashboard.
 
 ### 2. Google OAuth
 

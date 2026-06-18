@@ -1,7 +1,7 @@
 # Architecture & Design Document — AI-Powered Gmail Intelligence Platform
 
 > Repeatless Technical Assessment — AI Automation Executive
-> A web application that connects to Gmail, intelligently processes a user's email, and exposes an AI assistant that can summarize, categorize, compose/reply, and answer questions over the user's mailbox as a knowledge base.
+> A web application that connects to Gmail and turns the inbox into an **AI triage / control dashboard**: it summarizes, categorizes, and **prioritizes** every email (urgency + the action to take), lets the user compose/reply, and answers questions over the mailbox as a knowledge base — with source-cited, hallucination-guarded answers. Emails are surfaced **stacked by urgency** with per-item reminders, rather than as a flat list.
 
 ---
 
@@ -9,13 +9,13 @@
 
 | Layer | Choice | Why |
 |---|---|---|
-| Frontend | React + Vite + TypeScript, Tailwind + shadcn/ui, TanStack Query | Fast DX, typed, component library for speed, Query for server-state/caching |
-| Backend | FastAPI (Python 3.12, async) | First-class async I/O for fan-out API calls; richest AI/RAG ecosystem; Pydantic validation |
-| Background worker | ARQ (async Redis queue) | Email sync, summarization, and embedding are long-running and must not block HTTP requests |
+| Frontend | React + Vite + TypeScript (lightweight custom CSS) | Fast DX, typed; kept the styling dependency-free to stay simple and fast to ship |
+| Backend | FastAPI (Python 3.x, async) | First-class async I/O for fan-out API calls; richest AI/RAG ecosystem; Pydantic validation |
+| Background worker | ARQ (async Redis queue) | Email sync, analysis, and embedding are long-running and must not block HTTP requests |
 | Database | Supabase (PostgreSQL + `pgvector`) | Managed Postgres, row-level security, vector search in the same DB (no separate vector store to operate) |
-| Cache / Queue broker | Redis (Upstash) | ARQ broker + rate-limit token buckets + short-lived caches |
-| Primary AI | Google **Gemini** (`gemini-2.0-flash`) | Summaries, categorization, compose/reply, and the chat agent's reasoning/answer synthesis |
-| Secondary AI | **NVIDIA NIM** embedding model (`nvidia/nv-embedqa-e5-v5`) | Generates the vector embeddings that power RAG retrieval and newsletter dedup |
+| Cache / Queue broker | Redis | ARQ broker + rate-limit token buckets + short-lived caches |
+| Primary AI | Google **Gemini** (`gemini-2.5-flash`, thinking disabled) | Triage (category/priority/summary/action), compose/reply, and the chat agent's answer synthesis. `thinkingBudget=0` keeps these short tasks fast, cheap, and fully output (the 2.5 thinking budget otherwise consumes the token budget). |
+| Secondary AI | **NVIDIA NIM** embedding model (`nvidia/nv-embedqa-e5-v5`, 1024-d) | Generates the vector embeddings that power RAG retrieval and newsletter dedup |
 | Auth | Google OAuth 2.0 (Gmail API scopes) | Required; no IMAP/SMTP |
 | Deploy | Frontend → Vercel · Backend + Worker → Render/Railway · Redis → Upstash · DB → Supabase | Each tier scales independently |
 
@@ -159,10 +159,16 @@ create table emails (
   category_id      uuid references categories(id),
   summary          text,                        -- per-email summary (AI)
   summary_model    text,
+  priority         text,                        -- 'urgent'|'high'|'medium'|'low' (AI triage)
+  action_item      text,                        -- the concrete action the user should take, if any
+  needs_action     boolean default false,       -- drives the control-dashboard "to-do" surfacing
   label_ids        text[],                      -- gmail label ids on this message
   created_at       timestamptz not null default now(),
   unique (account_id, gmail_message_id)
 );
+-- priority/action/needs_action are added in migration 002_priority.sql and power
+-- the priority control dashboard (see §3.2). A functional index on the priority
+-- rank (urgent=1 … low=4) lets the dashboard fetch ordered-by-urgency in one query.
 
 -- Category taxonomy (seeded + extensible)
 create table categories (
@@ -246,9 +252,25 @@ We embed **email content chunks** (subject + cleaned body, split into ~500-token
 
 ## 3. AI Design
 
-### 3.1 Summarization
+### 3.1 Per-email triage — one structured call (category + priority + summary + action)
 
-- **Per-email summary:** Gemini is prompted with the cleaned body + minimal thread context (subject, sender). Output is a 1–3 sentence summary stored on `emails.summary`.
+Each email is analyzed by a **single Gemini call** (`services/analyze.py`) that returns a strict JSON object:
+
+```json
+{ "category": "job", "priority": "urgent",
+  "summary": "Final interview offered for Thu 3pm; confirm by tomorrow EOD.",
+  "action": "Confirm availability by tomorrow EOD and send your resume.",
+  "needs_action": true }
+```
+
+**Why one call instead of separate categorize + summarize + prioritize calls:**
+- **Cost/quota:** it roughly *halves* the number of LLM calls per email — important on free-tier limits and at scale (see §6).
+- **Consistency:** category, priority and action are decided from the *same* read of the email, so they can't disagree.
+- **It powers the priority control dashboard** (§ Product): emails are surfaced **stacked by urgency** (urgent → low), each showing *what it is, how urgent it is, and what to do* — the app behaves as a triage/control system, not a flat mailbox. The taxonomy is the required six categories (newsletter, job, finance, notification, personal, work); priority is `urgent|high|medium|low` with explicit guidance in the system prompt (deadlines/security/money/offers → urgent; newsletters/automated → low).
+
+The output is parsed defensively (regex-extract the JSON, validate against allowed values, fall back to safe defaults) so a malformed model response never breaks ingestion.
+
+- **Per-email summary:** the `summary` field above is stored on `emails.summary`.
 - **Thread-level summary:** built over the **ordered** messages of a thread so a reply is always understood relative to what came before. For long threads we use a **map-reduce / rolling strategy**:
   1. *Map:* summarize each message (or each chunk of very long messages) individually.
   2. *Reduce:* feed the ordered per-message summaries back to Gemini to produce one coherent "conversation arc" summary stored on `threads.summary`.
@@ -263,22 +285,28 @@ user question
    ├─ 1. Rewrite (Gemini): fold conversation history into a standalone query
    │     (so follow-ups like "and which were rejections?" resolve correctly)
    │
-   ├─ 2. Embed standalone query  ──►  NVIDIA NIM (nv-embedqa-e5-v5, 1024-d)
+   ├─ 2. Embed standalone query  ──►  NVIDIA NIM (nv-embedqa-e5-v5, 1024-d, input_type=query)
    │
    ├─ 3. Hybrid retrieve from Postgres:
-   │       • vector ANN (pgvector cosine, top 30)
-   │       • full-text (tsvector) for exact names/terms (top 30)
-   │       • optional structured filters parsed from query
-   │         (sender, category='job', date range)
+   │       • vector KNN (pgvector cosine, top 30) — see index note below
+   │       • full-text (tsvector, OR-semantics) for names/terms (top 30)
    │
-   ├─ 4. Rerank & dedup → keep top ~8 chunks; expand each to its parent
-   │     email/thread so the model sees full context, not a fragment
+   ├─ 4. Merge + dedup by email → keep top ~8 (vector hits above a
+   │     similarity floor preferred, then text hits fill in)
    │
    ├─ 5. Generate (Gemini): answer ONLY from retrieved context,
    │     each claim tagged with a [source N] marker
    │
    └─ 6. Return answer + structured `sources[]`; persist the turn
 ```
+
+**Vector index decision (ivfflat → exact).** We initially created an `ivfflat` index, but at this dataset scale (a few thousand vectors) `ivfflat` with the default single-probe actually *hurt recall* — each query scanned only one small cluster and missed relevant emails. We dropped it in favour of **exact KNN** (a sequential cosine scan), which at this size is both instant and 100% accurate. The `hnsw` index is the documented upgrade path once vectors reach the millions (§7) — but exact search is the correct, measured choice now, not a limitation.
+
+**Full-text uses OR-semantics.** `plainto_tsquery` ANDs all terms, which is brittle ("rejected" misses "won't move forward"); we rewrite it to OR the lexemes so partial overlaps still surface, then rank by `ts_rank`. This also makes the keyword path a usable fallback when embeddings are unavailable.
+
+**Graceful degradation (no hard failures).** Retrieval and answering both degrade instead of erroring:
+- *NIM/embeddings unavailable* → retrieval falls back to full-text-only, so chat still works.
+- *Gemini unavailable / rate-limited* → the answer step returns the **retrieved emails with their sources** ("the writer is busy, here are the relevant emails") instead of a 500. The user still gets value and source attribution.
 
 **Source clarity across multiple emails.** Every retrieved chunk carries its `email_id`, `from`, `subject`, and `date`. The generation prompt requires the model to cite a `[source N]` after each claim, and the API returns a parallel `sources[]` array. The UI renders each answer with clickable source chips that open the underlying email/thread — so the agent always knows and shows where each fact came from.
 
@@ -299,8 +327,9 @@ user question
 
 **`nvidia/nv-embedqa-e5-v5`** — a retrieval-tuned (QA) embedding model:
 - It is purpose-built for **question→passage retrieval**, which is exactly the chat-agent workload (asymmetric: short query vs. email passage).
-- Free-tier accessible on `build.nvidia.com`, 1024-dim vectors (compact, fast ANN).
-- **Role in the system:** it is the *only* thing that converts text→vectors — every email chunk at ingest and every user query at search time. By offloading all high-volume embedding to NIM, we reserve Gemini purely for low-volume reasoning, which is cheaper and keeps the two-model split meaningful rather than cosmetic.
+- Free-tier accessible on `build.nvidia.com`, 1024-dim vectors (compact, fast).
+- Inputs are capped at **512 tokens**; we send `truncate: "END"` so long emails are handled instead of erroring.
+- **Role in the system:** it is the *only* thing that converts text→vectors — every email chunk at ingest (`input_type=passage`) and every user query at search time (`input_type=query`, the model's asymmetric QA mode). By offloading all high-volume embedding to NIM, we reserve Gemini purely for low-volume reasoning, which is cheaper and keeps the two-model split meaningful rather than cosmetic.
 
 ### 3.5 Anti-hallucination guarantees
 
@@ -338,7 +367,7 @@ user question
 - **FastAPI (backend):** async-native — ideal for the heavy fan-out of Gmail + AI calls; Pydantic gives typed request/response contracts; the Python ecosystem has the most mature embedding/RAG tooling.
 - **React + Vite + TypeScript (frontend):** fast builds, typed UI, and **TanStack Query** handles server-state, caching, and polling (sync progress, chat) cleanly. **shadcn/ui + Tailwind** gives a clean inbox/chat UI quickly.
 - **ARQ + Redis (job queue):** sync, summarization, and embedding are long-running and bursty; a queue decouples them from HTTP, enables retries/backoff, and lets the worker scale on queue depth. ARQ is async, matching FastAPI.
-- **Supabase + pgvector (vector DB approach):** keeping vectors *in Postgres* avoids running a separate vector store, lets us do **hybrid** (vector + SQL filter + full-text) retrieval in one query, and gives RLS/auth for free. `ivfflat` cosine index is sufficient at this scale.
+- **Supabase + pgvector (vector DB approach):** keeping vectors *in Postgres* avoids running a separate vector store, lets us do **hybrid** (vector + SQL filter + full-text) retrieval in one query, and gives RLS/auth for free. At the current scale we use **exact KNN** (no ANN index) for perfect recall; `hnsw` is the upgrade path at large scale.
 - **Gemini + NIM split:** reason vs. represent (see §0/§3.4).
 - **Deploy:** SPA on Vercel; FastAPI + worker on Render/Railway; Redis on Upstash; DB on Supabase — each tier scales independently.
 
@@ -346,20 +375,25 @@ user question
 
 ## 6. Trade-offs & Limitations
 
-**Deliberately simplified / not built (given the ~1.5-day window):**
-- **Single-message granularity for embeddings over multi-modal content** — attachments and images are not parsed/OCR'd; only text bodies are embedded.
-- **`ivfflat` over `hnsw`** — simpler to tune at assessment scale; `hnsw` would give better recall/latency at large scale.
+**Free-tier AI quotas (the main operational constraint).** Both models run on free tiers:
+- **Gemini free tier** caps requests/day. Folding triage into one call per email (§3.1) halves usage, but a full 500+ inbox still exhausts the daily allowance — so enrichment is processed gradually by the worker and resumes as quota refreshes. The system degrades gracefully when exhausted (§3.2): chat returns retrieved emails, ingestion stores raw emails un-enriched and back-fills later. **Production uses a paid Gemini tier**, which removes this cap with no code change.
+- **NIM `nv-embedqa-e5-v5`** caps inputs at **512 tokens**; we send `truncate: "END"` and embed in resilient batches that skip any malformed chunk rather than failing the whole run.
+
+**Google OAuth verification (production gate).** The app uses *restricted* Gmail scopes, so in **Testing** mode only added test users can connect. Serving arbitrary users requires Google's OAuth **verification + annual CASA security review**. For the assessment the app runs in Testing mode with a demo/test-user account. No code changes are needed for production — it's a Google Console + verification process.
+
+**Deliberately simplified / not built (given the timebox):**
+- **Text-only knowledge base** — attachments and images are not parsed/OCR'd; only text bodies are embedded.
 - **Polling for sync progress** instead of websockets/SSE — simpler, adequate for the demo.
-- **Reranking is lightweight** (score + dedup) rather than a dedicated cross-encoder reranker.
-- **Newsletter dedup (bonus)** — implemented as semantic clustering of newsletter-category chunks (group by cosine similarity above a threshold, keep one representative per cluster with all source attributions). Treated as best-effort.
-- **Send scopes** — request the minimum needed; `gmail.send`/`gmail.modify` are only used for compose/reply and label writes.
+- **Lightweight rerank** (similarity + dedup) rather than a cross-encoder reranker.
+- **Query rewriting depends on Gemini** — when Gemini is quota-limited, vague questions retrieve less precisely; specific phrasing works well.
+- **Newsletter dedup (bonus)** — semantic clustering of newsletter-category chunks (group by cosine similarity, keep one representative with all source attributions). Best-effort.
 
 **What I'd do with more time:**
-- Swap to `hnsw` + a cross-encoder reranker for sharper retrieval.
-- Push notifications via Gmail `watch` + Pub/Sub for near-real-time incremental sync instead of polling.
+- Paid Gemini tier (or a model gateway with fallback) to enrich the full inbox immediately.
+- `hnsw` + a cross-encoder reranker for sharper retrieval at scale.
+- Gmail `watch` + Pub/Sub push for near-real-time incremental sync instead of polling.
 - Attachment ingestion (PDF/text extraction) into the knowledge base.
-- Per-user evals/guardrail tests for the agent (faithfulness, citation accuracy).
-- Multi-account unified inbox + cross-account search.
+- Per-user evals/guardrail tests for the agent (faithfulness, citation accuracy); reminders/snooze backed server-side rather than in the browser.
 
 ---
 
