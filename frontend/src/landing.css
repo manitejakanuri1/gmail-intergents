@@ -25,13 +25,13 @@
 .landing-page .lp-nav{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;
   justify-content:space-between;padding:18px 32px;backdrop-filter:blur(14px);
   background:rgba(5,6,12,.45);border-bottom:1px solid rgba(255,255,255,.06)}
-.landing-page .lp-logo{display:flex;align-items:center;gap:10px;font-family:"Space Grotesk";font-weight:600;font-size:18px}
+.landing-page .lp-logo{display:flex;align-items:center;gap:10px;font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:18px}
 .landing-page .lp-logo .dot{width:26px;height:26px;border-radius:8px;background:var(--lp-grad);
   display:grid;place-items:center;font-size:14px;box-shadow:0 0 22px rgba(124,92,255,.6)}
 .landing-page .lp-links{display:flex;gap:30px;font-size:14px;color:var(--lp-muted)}
 .landing-page .lp-links a:hover{color:var(--lp-txt)}
 .landing-page .lp-btn{display:inline-flex;align-items:center;gap:8px;border-radius:12px;padding:11px 20px;
-  font-weight:600;font-size:14px;font-family:"Space Grotesk";transition:transform .2s,box-shadow .2s;cursor:pointer;border:0}
+  font-weight:600;font-size:14px;font-family:"Space Grotesk",sans-serif;transition:transform .2s,box-shadow .2s;cursor:pointer;border:0}
 .landing-page .lp-primary{background:var(--lp-grad);color:#08080f;box-shadow:0 8px 30px rgba(124,92,255,.4)}
 .landing-page .lp-primary:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(124,92,255,.6)}
 .landing-page .lp-ghost{background:rgba(255,255,255,.05);border:1px solid var(--lp-border);color:var(--lp-txt)}
@@ -78,7 +78,7 @@
 .landing-page .lp-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:54px}
 @media(max-width:820px){.landing-page .lp-steps{grid-template-columns:1fr}}
 .landing-page .lp-step{padding:30px;border-radius:20px;border:1px solid var(--lp-border);background:var(--lp-card)}
-.landing-page .lp-step .num{font-family:"Space Grotesk";font-size:46px;font-weight:700;
+.landing-page .lp-step .num{font-family:"Space Grotesk",sans-serif;font-size:46px;font-weight:700;
   background:var(--lp-grad);-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1}
 .landing-page .lp-step h3{font-size:19px;margin:14px 0 8px}
 .landing-page .lp-step p{color:var(--lp-muted);font-size:15px}
@@ -87,7 +87,7 @@
   border:1px solid var(--lp-border);border-radius:24px;padding:40px;background:var(--lp-card)}
 @media(max-width:760px){.landing-page .lp-stats{grid-template-columns:1fr 1fr}}
 .landing-page .lp-stat{text-align:center}
-.landing-page .lp-stat .v{font-family:"Space Grotesk";font-size:40px;font-weight:700}
+.landing-page .lp-stat .v{font-family:"Space Grotesk",sans-serif;font-size:40px;font-weight:700}
 .landing-page .lp-stat .l{color:var(--lp-muted);font-size:13px;margin-top:6px}
 
 .landing-page .lp-tech-row{display:flex;flex-wrap:wrap;gap:14px;margin-top:40px}

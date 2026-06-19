@@ -53,10 +53,10 @@ def _header(headers: list[dict], name: str) -> str:
 
 def _split_address(value: str) -> tuple[str, str]:
     """Parse 'Jane Doe <jane@x.com>' -> ('Jane Doe', 'jane@x.com')."""
-    m = re.match(r"\s*(?:\"?([^\"<]*)\"?)?\s*<?([^<>\s]+@[^<>\s]+)>?", value)
-    if m:
-        return (m.group(1) or "").strip(), (m.group(2) or "").strip()
-    return "", value.strip()
+    email_match = re.search(r"[^<>\s]+@[^<>\s]+", value)
+    email = email_match.group(0).strip() if email_match else value.strip()
+    name = value.split("<", 1)[0].strip().strip('"') if "<" in value else ""
+    return name, email
 
 
 def _emails(value: str) -> list[str]:

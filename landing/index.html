@@ -41,13 +41,13 @@
     display:flex;align-items:center;justify-content:space-between;
     padding:18px 32px;backdrop-filter:blur(14px);
     background:rgba(5,6,12,.45);border-bottom:1px solid rgba(255,255,255,.06)}
-  .logo{display:flex;align-items:center;gap:10px;font-family:"Space Grotesk";font-weight:600;font-size:18px}
+  .logo{display:flex;align-items:center;gap:10px;font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:18px}
   .logo .dot{width:26px;height:26px;border-radius:8px;background:var(--grad);
     display:grid;place-items:center;font-size:14px;box-shadow:0 0 22px rgba(124,92,255,.6)}
   .nav-links{display:flex;gap:30px;font-size:14px;color:var(--muted)}
   .nav-links a:hover{color:var(--txt)}
   .btn{display:inline-flex;align-items:center;gap:8px;border-radius:12px;
-    padding:11px 20px;font-weight:600;font-size:14px;font-family:"Space Grotesk";
+    padding:11px 20px;font-weight:600;font-size:14px;font-family:"Space Grotesk",sans-serif;
     transition:transform .2s,box-shadow .2s;cursor:pointer;border:0}
   .btn-primary{background:var(--grad);color:#08080f;box-shadow:0 8px 30px rgba(124,92,255,.4)}
   .btn-primary:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(124,92,255,.6)}
@@ -108,7 +108,7 @@
   .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:54px}
   @media(max-width:820px){.steps{grid-template-columns:1fr}}
   .step{padding:30px;border-radius:20px;border:1px solid var(--border);background:var(--card)}
-  .step .num{font-family:"Space Grotesk";font-size:46px;font-weight:700;
+  .step .num{font-family:"Space Grotesk",sans-serif;font-size:46px;font-weight:700;
     background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1}
   .step h3{font-size:19px;margin:14px 0 8px}
   .step p{color:var(--muted);font-size:15px}
@@ -118,7 +118,7 @@
     border:1px solid var(--border);border-radius:24px;padding:40px;background:var(--card)}
   @media(max-width:760px){.stats{grid-template-columns:1fr 1fr}}
   .stat{text-align:center}
-  .stat .v{font-family:"Space Grotesk";font-size:40px;font-weight:700}
+  .stat .v{font-family:"Space Grotesk",sans-serif;font-size:40px;font-weight:700}
   .stat .l{color:var(--muted);font-size:13px;margin-top:6px;letter-spacing:.04em}
 
   /* tech */
