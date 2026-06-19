@@ -71,7 +71,7 @@ async def google_callback(code: str, request: Request):
     resp = RedirectResponse(url=f"{settings.frontend_origin}/#token={token}")
     resp.set_cookie(
         SESSION_COOKIE, token, httponly=True, samesite="lax",
-        max_age=7 * 24 * 3600, secure=False,
+        max_age=7 * 24 * 3600, secure=True,
     )
     return resp
 

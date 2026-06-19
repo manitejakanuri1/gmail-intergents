@@ -6,7 +6,11 @@ const TOKEN_KEY = "session_token";
 (function captureToken() {
   const m = window.location.hash.match(/token=([^&]+)/);
   if (m) {
-    localStorage.setItem(TOKEN_KEY, decodeURIComponent(m[1]));
+    const raw = decodeURIComponent(m[1]);
+    // Only accept a well-formed JWT (header.payload.signature) before storing/using it
+    if (/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(raw)) {
+      localStorage.setItem(TOKEN_KEY, raw);
+    }
     history.replaceState(null, "", window.location.pathname + window.location.search);
   }
 })();

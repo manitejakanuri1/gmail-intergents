@@ -17,7 +17,12 @@ export default function App() {
     setBusy(true);
     try {
       const { url } = await api.loginUrl();
-      window.location.href = url; // redirect to Google consent
+      // Only ever redirect to Google's OAuth domain (guards against open redirect)
+      if (/^https:\/\/accounts\.google\.com\//.test(url)) {
+        window.location.href = url;
+      } else {
+        throw new Error("Unexpected login URL");
+      }
     } catch {
       setBusy(false);
       alert("Couldn't reach the backend. Please try again in a moment (the server may be waking up).");
